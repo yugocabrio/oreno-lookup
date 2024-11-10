@@ -1,5 +1,6 @@
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
+use num_traits::{FromPrimitive, ToPrimitive};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldElement {
@@ -96,6 +97,64 @@ impl FieldElement {
     pub fn is_zero(&self) -> bool {
         self.num.is_zero()
     }
+
+    pub fn find_primitive_root(order: usize, prime: &BigUint) -> Result<BigUint, &'static str> {
+        use num_traits::One;
+        let one = BigUint::one();
+        let p_minus_one = prime - &one;
+        let order_biguint = BigUint::from(order);
+    
+        if &p_minus_one % &order_biguint != BigUint::zero() {
+            return Err("Order does not divide p - 1");
+        }
+    
+        let cofactor = &p_minus_one / &order_biguint;
+    
+        let mut factors = Vec::new();
+        let mut n = order;
+        let mut i = 2;
+        while i * i <= n {
+            if n % i == 0 {
+                factors.push(i);
+                while n % i == 0 {
+                    n /= i;
+                }
+            }
+            i += 1;
+        }
+        if n > 1 {
+            factors.push(n);
+        }
+    
+        for candidate in 2..prime.to_usize().unwrap() {
+            let candidate_biguint = BigUint::from(candidate);
+    
+            if candidate_biguint.modpow(&cofactor, prime) == one {
+                continue;
+            }
+    
+            let mut is_generator = true;
+            for &factor in &factors {
+                let exp = &p_minus_one / BigUint::from(factor);
+                if candidate_biguint.modpow(&exp, prime) == one {
+                    is_generator = false;
+                    break;
+                }
+            }
+    
+            if is_generator {
+                return Ok(candidate_biguint.modpow(&cofactor, prime));
+            }
+        }
+    
+        Err("No primitive root found")
+    }
+
+    pub fn from_u32(n: u32, prime: &BigUint) -> Result<Self, &'static str> {
+        let num = BigUint::from_u32(n).ok_or("Invalid u32")?;
+        FieldElement::new(num, prime.clone())
+    }
+
 }
 
 #[cfg(test)]
@@ -153,5 +212,30 @@ mod tests {
         let a = FieldElement::new(BigUint::from(2u32), prime.clone()).unwrap();
         let neg_a = a.negate().unwrap();
         assert_eq!(neg_a.num, BigUint::from(5u32));
+    }
+
+    #[test]
+    fn test_find_primitive_root_and_subgroup() {
+        let prime = BigUint::from(31u32);
+        let order = 5;
+
+        let primitive_root = FieldElement::find_primitive_root(order, &prime).unwrap();
+        let mut group = Vec::new();
+
+        for i in 0..order {
+            let power = primitive_root.modpow(&BigUint::from(i), &prime);
+            let element = FieldElement::new(power, prime.clone()).unwrap();
+            group.push(element);
+        }
+
+        let expected = vec![
+            FieldElement::new(BigUint::from(1u32), prime.clone()).unwrap(),
+            FieldElement::new(BigUint::from(2u32), prime.clone()).unwrap(),
+            FieldElement::new(BigUint::from(4u32), prime.clone()).unwrap(),
+            FieldElement::new(BigUint::from(8u32), prime.clone()).unwrap(),
+            FieldElement::new(BigUint::from(16u32), prime.clone()).unwrap(),
+        ];
+
+        assert_eq!(group, expected);
     }
 }
