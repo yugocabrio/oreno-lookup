@@ -12,12 +12,12 @@ impl From<Vec<FieldElement>> for UnivariatePolynomial {
 }
 
 impl UnivariatePolynomial {
-    /// Creates a new polynomial.
+    /// Creates a new univariate polynomial.
     pub fn new(coefficients: Vec<FieldElement>) -> Self {
         Self { coefficients }
     }
 
-    /// Adds two polynomials.
+    /// Adds two univariate polynomials.
     pub fn uni_poly_add(&self, other: &Self) -> Result<Self, &'static str> {
         let len = usize::max(self.coefficients.len(), other.coefficients.len());
         let mut result_coeffs = Vec::with_capacity(len);
@@ -32,7 +32,7 @@ impl UnivariatePolynomial {
         Ok(Self::new(result_coeffs))
     }
 
-    /// Subtracts another polynomial from one polynomial.
+    /// Subtracts another univariate polynomial from one univariate polynomial.
     pub fn uni_poly_sub(&self, other: &Self) -> Result<Self, &'static str> {
         let len = usize::max(self.coefficients.len(), other.coefficients.len());
         let mut result_coeffs = Vec::with_capacity(len);
@@ -47,7 +47,7 @@ impl UnivariatePolynomial {
         Ok(Self::new(result_coeffs))
     }
 
-    /// Multiplies two polynomials.
+    /// Multiplies two univariate polynomials.
     pub fn uni_poly_mul(&self, other: &Self) -> Result<Self, &'static str> {
         let len = self.coefficients.len() + other.coefficients.len() - 1;
         let mut result_coeffs = vec![FieldElement::zero(&self.coefficients[0].prime); len];
@@ -62,7 +62,7 @@ impl UnivariatePolynomial {
         Ok(Self::new(result_coeffs))
     }
 
-    /// Scales the polynomial by a scalar.
+    /// Scales the univariate polynomial by a scalar.
     pub fn uni_poly_scale(&self, scalar: &FieldElement) -> Result<Self, &'static str> {
         let scaled_coeffs = self
             .coefficients
@@ -72,7 +72,7 @@ impl UnivariatePolynomial {
         Ok(Self::new(scaled_coeffs))
     }
 
-    /// Evaluates the polynomial at a given point.
+    /// Evaluates the univariate polynomial at a given point.
     pub fn uni_poly_evaluate(&self, x: &FieldElement) -> Result<FieldElement, &'static str> {
         let mut result = FieldElement::zero(&x.prime);
         let mut x_pow = FieldElement::one(&x.prime);
@@ -85,7 +85,7 @@ impl UnivariatePolynomial {
     }
     
 
-    /// Composes one polynomial with another polynomial.
+    /// Composes one univariate polynomial with another univariate polynomial.
     pub fn uni_poly_compose(&self, other: &Self) -> Result<Self, &'static str> {
         let mut result = UnivariatePolynomial::new(vec![FieldElement::zero(&self.coefficients[0].prime)]);
 
@@ -97,14 +97,14 @@ impl UnivariatePolynomial {
         Ok(result)
     }
 
-    /// Trims the polynomial by removing leading zero coefficients.
+    /// Trims the univariate polynomial by removing leading zero coefficients.
     pub fn trim(&mut self) {
         while self.coefficients.last().map_or(false, |c| c.is_zero()) {
             self.coefficients.pop();
         }
     }
 
-    /// Raises the polynomial to a given power.
+    /// Raises the univariate polynomial to a given power.
     pub fn poly_pow(&self, exponent: u32) -> Result<Self, &'static str> {
         let mut result = UnivariatePolynomial::new(vec![FieldElement::one(&self.coefficients[0].prime)]);
         let mut base = self.clone();
@@ -121,7 +121,7 @@ impl UnivariatePolynomial {
         Ok(result)
     }
 
-    /// Constructs a polynomial using Lagrange interpolation.
+    /// Constructs an univariate polynomial using Lagrange interpolation.
     /// The polynomial is expressed as p(x) = Σ(y_i * L_i(x)) for i = 0 to n-1, where:
     /// L_i(x) = Π((x - x_j) / (x_i - x_j)) for k ≠ j, representing the Lagrange basis polynomials.
     pub fn uni_poly_lagrange_interpolation(
@@ -181,12 +181,12 @@ impl UnivariatePolynomial {
     }
 
 
-    /// Checks if the polynomial is the zero polynomial.
+    /// Checks if the univariate polynomial is the zero polynomial.
     pub fn uni_poly_is_zero(&self) -> bool {
         self.coefficients.iter().all(|c| c.is_zero())
     }
 
-    /// Returns the degree of the polynomial.
+    /// Returns the degree of the univariate polynomial.
     pub fn uni_poly_degree(&self) -> usize {
         let mut degree = self.coefficients.len();
         while degree > 0 && self.coefficients[degree - 1].is_zero() {
