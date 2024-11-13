@@ -3,188 +3,265 @@ use crate::multivariate_polynomial::MultivariatePolynomial;
 use crate::univariate_polynomial::UnivariatePolynomial;
 use num_bigint::BigUint;
 
-pub struct Sumcheck<'a> {
-    pub polynomial: &'a MultivariatePolynomial,
-    pub num_variables: usize,
-    pub verifier_challenges: Vec<FieldElement>,
+pub struct Prover {
+    // Multivariate polynomial that takes in boolean inputs; hypercube
+    multivariate_polynomial: MultivariatePolynomial,
+    num_variables: usize,
 }
 
-impl<'a> Sumcheck<'a> {
-    pub fn new(
-        polynomial: &'a MultivariatePolynomial,
-        num_variables: usize,
-        verifier_challenges: Vec<FieldElement>,
-    ) -> Self {
+impl Prover {
+    pub fn new(multivariate_polynomial: MultivariatePolynomial, num_variables: usize) -> Self {
         Self {
-            polynomial,
+            multivariate_polynomial,
             num_variables,
-            verifier_challenges,
         }
     }
 
-    pub fn execute(&self) -> Result<(), &'static str> {
-        let prime = &self.polynomial.terms.values().next().unwrap().prime;
-        let mut claimed_sum = self.compute_initial_sum()?;
-        println!("Initial total sum (H): {:?}", claimed_sum);
-        let mut previous_r_i = Vec::new();
+    // Prover computes and fixes an initial sum H in F
+    pub fn compute_initial_sum(&self) -> Result<FieldElement, &'static str> {
+        let prime = self.multivariate_polynomial.get_prime()?;
+        let mut sum = FieldElement::zero(&prime);
 
-        for i in 0..self.num_variables {
-            // Prover computes univariate polynomial
-            let univariate_poly = self.compute_univariate_polynomial(i, &previous_r_i)?;
-            println!(
-                "Round {}: univariate polynomial g{}(x{}) = {:?}",
-                i + 1,
-                i + 1,
-                i + 1,
-                univariate_poly
-            );
-
-            // Evaluations at 0 and 1
-            let x0 = FieldElement::zero(prime);
-            let x1 = FieldElement::one(prime);
-            let s_0 = univariate_poly.uni_poly_evaluate(&x0)?;
-            let s_1 = univariate_poly.uni_poly_evaluate(&x1)?;
-            println!(
-                "Evaluation of univariate polynomial: S_0 = {:?}, S_1 = {:?}",
-                s_0, s_1
-            );
-
-            // Verifier checks that s_0 + s_1 == claimed_sum
-            let s_total = s_0.add(&s_1)?;
-            if claimed_sum != s_total {
-                return Err("Consistency check failed in Sumcheck protocol");
-            }
-            println!(
-                "S_0 + S_1 = Claimed Sum = {:?}",
-                claimed_sum
-            );
-
-            // Verifier provides challenge
-            let r_i = self
-                .verifier_challenges
-                .get(i)
-                .ok_or("Not enough challenges provided")?;
-            println!("Random challenge r{} = {:?}", i + 1, r_i);
-
-            // Prover and Verifier update claimed sum
-            claimed_sum = univariate_poly.uni_poly_evaluate(r_i)?;
-            println!("Updated Sum：{:?}", claimed_sum);
-
-            previous_r_i.push(r_i.clone());
-        }
-
-        // Final check
-        let final_value = self.polynomial.multi_poly_evaluate(&previous_r_i)?;
-        println!("Final evaluation：{:?}", final_value);
-        if claimed_sum != final_value {
-            return Err("Final check failed in Sumcheck protocol");
-        }
-        println!("Sumcheck 成功");
-
-        Ok(())
-    }
-
-    /// Comute initial toatal sum
-    fn compute_initial_sum(&self) -> Result<FieldElement, &'static str> {
-        let prime = &self.polynomial.terms.values().next().unwrap().prime;
-        let mut sum = FieldElement::zero(prime);
-        for point in self.iterate_domain(0, vec![])? {
-            let value = self.polynomial.multi_poly_evaluate(&point)?;
+        // Generates all possible assignments for the variables from {0,1}^v
+        let all_assignments = generate_all_assignments(self.num_variables, &prime)?;
+        for assignment in all_assignments {
+            // Evaluates the multivariate polynomial at the current assignment and compute toatal initial sum
+            let value = self.multivariate_polynomial.multi_poly_evaluate(&assignment)?;
             sum = sum.add(&value)?;
         }
         Ok(sum)
     }
 
-    /// Compute 
-    fn compute_univariate_polynomial(
+    // In the i-th round, the Prover sends the univariate polynomial and compute partial sum
+    /// g_i(X_i) = Σ_(x_{i+1},...,x_v in 0,1) g(r_1, ..., r_{i-1}, X_i, x_{i+1}, ..., x_v) \]
+    pub fn compute_univariate_polynomial(
         &self,
-        var_index: usize,
-        previous_r_i: &[FieldElement],
+        var_index: usize, // current variable index
+        challenges: &[FieldElement],
     ) -> Result<UnivariatePolynomial, &'static str> {
-        let prime = &self.polynomial.terms.values().next().unwrap().prime;
-        let mut poly = UnivariatePolynomial::new(vec![FieldElement::zero(prime)]);
+        let prime = self.multivariate_polynomial.get_prime()?;
 
-        let mut assignment = vec![FieldElement::zero(prime); self.num_variables];
+        // Initialize the univariate polynomial
+        let mut univariate_polynomial = UnivariatePolynomial::new(vec![FieldElement::zero(&prime)]);
 
-        for (i, r_i) in previous_r_i.iter().enumerate() {
-            assignment[i] = r_i.clone();
+        // Prepare an assignment vector(zero)
+        let mut assignment = vec![FieldElement::zero(&prime); self.num_variables];
+        for (i, challenge) in challenges.iter().enumerate() {
+            assignment[i] = challenge.clone();
         }
 
-        let mut vars_to_assign = Vec::new();
-        for i in 0..self.num_variables {
-            if i != var_index && i >= previous_r_i.len() {
-                vars_to_assign.push(i);
+        // Identify the variables to sum over
+        // those that except the current index(var_index) and fixed challenge
+        let vars_to_sum_over: Vec<usize> = (0..self.num_variables)
+            .filter(|&i| i != var_index && i >= challenges.len())
+            .collect();
+    
+        println!("vars_to_sum_over: {:?}", vars_to_sum_over);
+
+        // Generate all possible assignments that are used for the specific round
+        let sum_over_assignments = generate_all_assignments(vars_to_sum_over.len(), &prime)?;
+        println!("sum_over_assignments: {:?}", sum_over_assignments);
+        for sum_assignment in sum_over_assignments {
+            // Update the assignment vector
+            for (k, &var_idx) in vars_to_sum_over.iter().enumerate() {
+                assignment[var_idx] = sum_assignment[k].clone();
             }
-        }
 
-        let total_assignments = 1 << vars_to_assign.len();
+            println!("assignment: {:?}", assignment);
 
-        for bits in 0..total_assignments {
-            for (k, &j) in vars_to_assign.iter().enumerate() {
-                let bit = (bits >> k) & 1;
-                assignment[j] = FieldElement::from_u32(bit as u32, prime)?;
-            }
+            // Compute the univariate polynomial term for the current assignment
+            let mut term_polynomial = UnivariatePolynomial::new(vec![FieldElement::zero(&prime)]);
 
-            let mut term_poly = UnivariatePolynomial::new(vec![FieldElement::zero(prime)]);
-
-            for (exponents, coeff) in &self.polynomial.terms {
+            // Iterate over each term in the multivariate polynomial
+            for (exponents, coeff) in &self.multivariate_polynomial.terms {
                 let mut term_coeff = coeff.clone();
                 let mut degree = 0u32;
 
+                // Process each variable in the term
                 for (i, &exp) in exponents.iter().enumerate() {
                     if exp == 0 {
                         continue;
                     }
                     if i == var_index {
-                        degree = exp;
+                        // The current variable remains as X_i in the univariate polynomial
+                        degree += exp;
                     } else {
+                        // Variables that are fixed are substituted with their values
                         let x_i = &assignment[i];
-                        let x_i_pow = x_i.pow(exp.try_into().unwrap())?;
+                        let x_i_pow = x_i.pow(exp)?;
                         term_coeff = term_coeff.mul(&x_i_pow)?;
                     }
                 }
 
-                let mut term_poly_coeffs = vec![FieldElement::zero(prime); (degree as usize) + 1];
-                term_poly_coeffs[degree as usize] = term_coeff;
-                let mono_poly = UnivariatePolynomial::new(term_poly_coeffs);
+                // Create a monomial for the univariate polynomial
+                let mut monomial_coeffs =
+                    vec![FieldElement::zero(&prime); (degree as usize) + 1];
+                monomial_coeffs[degree as usize] = term_coeff;
+                let monomial = UnivariatePolynomial::new(monomial_coeffs);
 
-                term_poly = term_poly.uni_poly_add(&mono_poly)?;
+                // Add the monomial to the term polynomial
+                term_polynomial = term_polynomial.uni_poly_add(&monomial)?;
             }
 
-            poly = poly.uni_poly_add(&term_poly)?;
+            // Sum the computed univariate polynomial
+            univariate_polynomial = univariate_polynomial.uni_poly_add(&term_polynomial)?;
         }
 
-        Ok(poly)
+        Ok(univariate_polynomial)
     }
 
-    fn iterate_domain(
+    /// Evaluates the polynomial at the provided challenges g(r_1, ..., r_v).
+    pub fn evaluate_multi_variate_polynomial(
         &self,
-        var_index: usize,
-        current_assignment: Vec<FieldElement>,
-    ) -> Result<Vec<Vec<FieldElement>>, &'static str> {
-        if var_index >= self.num_variables {
-            return Ok(vec![current_assignment]);
-        }
-
-        let mut results = Vec::new();
-        let prime = &self.polynomial.terms.values().next().unwrap().prime;
-
-        // x_i = 0
-        let mut next_assignment_zero = current_assignment.clone();
-        next_assignment_zero.push(FieldElement::zero(prime));
-        let sub_results_zero = self.iterate_domain(var_index + 1, next_assignment_zero)?;
-        results.extend(sub_results_zero);
-
-        // x_i = 1
-        let mut next_assignment_one = current_assignment;
-        next_assignment_one.push(FieldElement::one(prime));
-        let sub_results_one = self.iterate_domain(var_index + 1, next_assignment_one)?;
-        results.extend(sub_results_one);
-
-        Ok(results)
+        challenges: &[FieldElement],
+    ) -> Result<FieldElement, &'static str> {
+        self.multivariate_polynomial.multi_poly_evaluate(challenges)
     }
 }
 
+pub struct Verifier {
+    num_variables: usize,
+    challenges: Vec<FieldElement>,
+    claimed_sums: Vec<FieldElement>,
+}
+
+impl Verifier {
+    pub fn new(num_variables: usize) -> Self {
+        Self {
+            num_variables,
+            challenges: Vec::new(),
+            claimed_sums: Vec::new(),
+        }
+    }
+
+    // Records a new challenge r_i
+    pub fn add_challenge(&mut self, challenge: FieldElement) {
+        self.challenges.push(challenge);
+    }
+
+    // Records claimed sum g_i(r_i) provided by the Prover.
+    pub fn add_claimed_sum(&mut self, claimed_sum: FieldElement) {
+        self.claimed_sums.push(claimed_sum);
+    }
+
+    // Verifier checks that g_{i-1}(r_{i-1}) = g_i(0) + g_i(1).
+    pub fn check_univariate_polynomial(
+        &self,
+        univariate_polynomial: &UnivariatePolynomial,
+        previous_claimed_sum: &FieldElement,
+    ) -> Result<(), &'static str> {
+        let prime = &univariate_polynomial.coefficients[0].prime;
+
+        // Evaluate the univariate polynomial at X_i = 0 and X_i = 1
+        let g_0 = univariate_polynomial.uni_poly_evaluate(&FieldElement::zero(prime))?;
+        let g_1 = univariate_polynomial.uni_poly_evaluate(&FieldElement::one(prime))?;
+        let g_total = g_0.add(&g_1)?;
+
+        // Check that the sum equals the previous claimed sum
+        if g_total != *previous_claimed_sum {
+            return Err("Verification failed: g(0) + g(1) != previous claimed sum");
+        }
+
+        // TODO: degree should be checked
+
+        Ok(())
+    }
+}
+
+pub struct Sumcheck {
+    prover: Prover,
+    verifier: Verifier,
+    challenges: Vec<FieldElement>,
+}
+
+impl Sumcheck {
+    pub fn new(
+        polynomial: MultivariatePolynomial,
+        num_variables: usize,
+        challenges: Vec<FieldElement>,
+    ) -> Self {
+        let prover = Prover::new(polynomial, num_variables);
+        let verifier = Verifier::new(num_variables);
+        Self {
+            prover,
+            verifier,
+            challenges,
+        }
+    }
+
+    pub fn execute_sumcheck_protocol(&mut self) -> Result<(), &'static str> {
+        // let prime = self.prover.polynomial.get_prime()?;
+
+        // Prover computes the initial sum H and sends it to the Verifier
+        let mut claimed_sum = self.prover.compute_initial_sum()?;
+        println!("Initial sum (H): {:?}", claimed_sum);
+
+        // For each round
+        for (round, challenge) in self.challenges.iter().enumerate() {
+
+            // Prover computes the univariate polynomial g_i(X_i) and sends it to the Verifier
+            let univariate_poly = self
+                .prover
+                .compute_univariate_polynomial(round, &self.verifier.challenges)?;
+
+            println!(
+                "Round {}: Univariate polynomial g{}(X{}) = {:?}",
+                round + 1,
+                round + 1,
+                round + 1,
+                univariate_poly
+            );
+
+            // Verifier checks the polynomial and the claimed sum
+            self.verifier
+                .check_univariate_polynomial(&univariate_poly, &claimed_sum)?;
+
+            // Verifier chooses a random challenge r_i and sends it to the Prover
+            self.verifier.add_challenge(challenge.clone());
+            println!("Verifier's challenge r{} = {:?}", round + 1, challenge);
+
+            // Updates the claimed sum
+            claimed_sum = univariate_poly.uni_poly_evaluate(challenge)?;
+            self.verifier.add_claimed_sum(claimed_sum.clone());
+            println!("Updated claimed sum (H): {:?}", claimed_sum);
+        }
+
+        // Final round
+        // Verifier evaluates multivariate polynomial: g(r_1, ..., r_v).
+        let final_evaluation = self
+            .prover
+            .evaluate_multi_variate_polynomial(&self.verifier.challenges)?;
+        println!("Final evaluation of g(r1,...,rv): {:?}", final_evaluation);
+
+        // Verifier checks final evaluation and final claimed sum.
+        if claimed_sum != final_evaluation {
+            return Err("Final verification failed");
+        }
+
+        println!("Sum-Check protocol successed");
+        Ok(())
+    }
+}
+
+// Generates all possible assignments for variables in {0,1}^n.
+pub fn generate_all_assignments(
+    num_vars: usize,
+    prime: &BigUint,
+) -> Result<Vec<Vec<FieldElement>>, &'static str> {
+    let num_assignments = 1 << num_vars;
+    let mut assignments = Vec::with_capacity(num_assignments);
+
+    // Iterate over all integers from 0 to 2^n - 1 to generate binary assignments
+    for i in 0..num_assignments {
+        let mut assignment = Vec::with_capacity(num_vars);
+        for j in (0..num_vars).rev() {
+            let bit = (i >> j) & 1;
+            assignment.push(FieldElement::from_u32(bit as u32, prime)?);
+        }
+        assignments.push(assignment);
+    }
+    Ok(assignments)
+}
 
 #[cfg(test)]
 mod tests {
@@ -194,10 +271,9 @@ mod tests {
     use num_bigint::BigUint;
     use std::collections::HashMap;
 
-
     #[test]
     fn test_compute_initial_sum() {
-        // p = 17
+        // P17
         let prime = BigUint::from(17u32);
 
         // g(x0, x1) = x0 * x1 + x0 + x1 + 1
@@ -212,23 +288,16 @@ mod tests {
         // x1
         terms.insert(vec![0, 1], FieldElement::one(&prime));
 
-        // 1
+        // Constant 1
         terms.insert(vec![0, 0], FieldElement::one(&prime));
 
         let polynomial = MultivariatePolynomial::new(terms);
 
         let num_variables = 2;
-        let verifier_challenges = vec![];
-        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+        let prover = Prover::new(polynomial, num_variables);
 
-        // (x0, x1) ∈ {0,1}^2
-        // g(0,0) = 0 + 0 + 0 + 1 = 1
-        // g(0,1) = 0 + 0 + 1 + 1 = 2
-        // g(1,0) = 0 + 1 + 0 + 1 = 2
-        // g(1,1) = 1 + 1 + 1 + 1 = 4
-        // sum = 1 + 2 + 2 + 4 = 9 mod 17 = 9
-
-        let initial_sum = sumcheck.compute_initial_sum().unwrap();
+        // g(0,0) + g(0,1) + g(1,0) + g(1,1) = 1 + 2 + 2 + 4 = 9 mod 17
+        let initial_sum = prover.compute_initial_sum().unwrap();
         let expected_sum = FieldElement::from_u32(9u32, &prime).unwrap();
 
         assert_eq!(initial_sum, expected_sum);
@@ -236,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_compute_univariate_polynomial() {
-        // p = 17
+        // P17
         let prime = BigUint::from(17u32);
 
         // g(x0, x1) = x0 * x1 + x0 + x1 + 1
@@ -251,30 +320,23 @@ mod tests {
         // x1
         terms.insert(vec![0, 1], FieldElement::one(&prime));
 
-        // 1
+        // Constant term 1
         terms.insert(vec![0, 0], FieldElement::one(&prime));
 
         let polynomial = MultivariatePolynomial::new(terms);
 
         let num_variables = 2;
-        let verifier_challenges = vec![];
-        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+        let prover = Prover::new(polynomial, num_variables);
 
-        // index 0（x0)
+        // index 0
         let var_index = 0;
-        let previous_r_i = vec![];
+        let previous_challenges = vec![];
 
-        let univariate_poly = sumcheck
-            .compute_univariate_polynomial(var_index, &previous_r_i)
+        let univariate_poly = prover
+            .compute_univariate_polynomial(var_index, &previous_challenges)
             .unwrap();
 
-        // g1(x0)
-        // x1 = 0
-        // g(0,0) = 1, g(1,0) = 2
-        // x1 = 1
-        // g(0,1) = 2, g(1,1) = 4
-        // g1(x0) = (g(x0,0) + g(x0,1)) = (1 + 2)(1 - x0) + (2 + 4)x0 = 3 + 3x0
-
+        // g1(X1) = 3 + 3X1
         let expected_coeffs = vec![
             FieldElement::from_u32(3u32, &prime).unwrap(),
             FieldElement::from_u32(3u32, &prime).unwrap(),
@@ -284,51 +346,41 @@ mod tests {
     }
 
     #[test]
-    fn test_iterate_domain() {
-        // p = 17
+    fn test_generate_all_assignments() {
+        // P17
         let prime = BigUint::from(17u32);
 
-        let terms = HashMap::new();
-        let polynomial = MultivariatePolynomial::new(terms);
+        let num_vars = 2;
 
-        let num_variables = 2;
-        let verifier_challenges = vec![];
-        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
-
-        // var_index = 0
-        let var_index = 0;
-        let current_assignment = vec![];
-
-        let domain_points = sumcheck
-            .iterate_domain(var_index, current_assignment)
-            .unwrap();
-
-        // (x0, x1) ∈ {0,1}^2
-        let expected_points = vec![
+        // [ [0,0], [0,1], [1,0], [1,1] ]
+        let expected_assignments = vec![
             vec![
-                FieldElement::zero(&prime),
-                FieldElement::zero(&prime),
+                FieldElement::from_u32(0, &prime).unwrap(),
+                FieldElement::from_u32(0, &prime).unwrap(),
             ],
             vec![
-                FieldElement::zero(&prime),
-                FieldElement::one(&prime),
+                FieldElement::from_u32(0, &prime).unwrap(),
+                FieldElement::from_u32(1, &prime).unwrap(),
             ],
             vec![
-                FieldElement::one(&prime),
-                FieldElement::zero(&prime),
+                FieldElement::from_u32(1, &prime).unwrap(),
+                FieldElement::from_u32(0, &prime).unwrap(),
             ],
             vec![
-                FieldElement::one(&prime),
-                FieldElement::one(&prime),
+                FieldElement::from_u32(1, &prime).unwrap(),
+                FieldElement::from_u32(1, &prime).unwrap(),
             ],
         ];
 
-        assert_eq!(domain_points, expected_points);
+        let generated_assignments = generate_all_assignments(num_vars, &prime)
+            .expect("Failed to generate assignments");
+
+        assert_eq!(generated_assignments, expected_assignments);
     }
 
     #[test]
     fn test_sumcheck_protocol_1() {
-        // p = 17
+        // P17
         let prime = BigUint::from(17u32);
 
         // g(x0, x1, x2) = 2x0^3 + x1 + x0 * x2
@@ -348,7 +400,7 @@ mod tests {
 
         let polynomial = MultivariatePolynomial::new(terms);
 
-        // r0 = 1, r1 = 0, r2 = 1
+        // r0 = 2, r1 = 5, r2 = 7
         let verifier_challenges = vec![
             FieldElement::from_u32(2u32, &prime).unwrap(),
             FieldElement::from_u32(5u32, &prime).unwrap(),
@@ -356,15 +408,15 @@ mod tests {
         ];
 
         let num_variables = 3;
-        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+        let mut sumcheck = Sumcheck::new(polynomial, num_variables, verifier_challenges);
 
-        let result = sumcheck.execute();
+        let result = sumcheck.execute_sumcheck_protocol();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_sumcheck_protocol_2() {
-        // p = 17
+        // P17
         let prime = BigUint::from(17u32);
 
         // g(x0, x1, x2) = 3x0 * x1 + 5x2 + 2
@@ -382,7 +434,7 @@ mod tests {
             FieldElement::from_u32(5u32, &prime).unwrap(),
         );
 
-        // 2
+        // Constant term 2
         terms.insert(
             vec![0, 0, 0],
             FieldElement::from_u32(2u32, &prime).unwrap(),
@@ -390,7 +442,7 @@ mod tests {
 
         let polynomial = MultivariatePolynomial::new(terms);
 
-        // r1 = 4, r2 = 7, r3 = 5
+        // r0 = 4, r1 = 7, r2 = 5
         let verifier_challenges = vec![
             FieldElement::from_u32(4u32, &prime).unwrap(),
             FieldElement::from_u32(7u32, &prime).unwrap(),
@@ -398,15 +450,15 @@ mod tests {
         ];
 
         let num_variables = 3;
-        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+        let mut sumcheck = Sumcheck::new(polynomial, num_variables, verifier_challenges);
 
-        let result = sumcheck.execute();
+        let result = sumcheck.execute_sumcheck_protocol();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_sumcheck_protocol_3() {
-        // p = 7
+        // P7
         let prime = BigUint::from(7u32);
 
         // g(x0, x1) = x0 * x1 + x0 + x1 + 1
@@ -421,23 +473,21 @@ mod tests {
         // x1
         terms.insert(vec![0, 1], FieldElement::one(&prime));
 
-        // 1
+        // Constant term 1
         terms.insert(vec![0, 0], FieldElement::one(&prime));
 
         let polynomial = MultivariatePolynomial::new(terms);
 
-        // r1 = 3, r2 = 2
+        // r0 = 3, r1 = 2
         let verifier_challenges = vec![
             FieldElement::from_u32(3u32, &prime).unwrap(),
             FieldElement::from_u32(2u32, &prime).unwrap(),
         ];
 
         let num_variables = 2;
-        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+        let mut sumcheck = Sumcheck::new(polynomial, num_variables, verifier_challenges);
 
-        let result = sumcheck.execute();
+        let result = sumcheck.execute_sumcheck_protocol();
         assert!(result.is_ok());
     }
-
-
 }

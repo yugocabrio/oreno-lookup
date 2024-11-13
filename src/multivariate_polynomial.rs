@@ -4,7 +4,7 @@ use num_bigint::BigUint;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MultivariatePolynomial {
-    // monomial: vector of power, coefficient
+    // monomial: vector of exponents, coefficient
     // 5x^2y^0z^1 => {[2, 0, 1], 5}
     pub terms: HashMap<Vec<u32>, FieldElement>,
 }
@@ -82,6 +82,10 @@ impl MultivariatePolynomial {
         }
 
         Ok(result)
+    }
+
+    pub fn get_prime(&self) -> Result<&BigUint, &'static str> {
+        self.terms.values().next().map(|c| &c.prime).ok_or("multi poly is empty")
     }
 }
 
