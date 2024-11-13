@@ -36,33 +36,33 @@ impl FieldElement {
         Self::new(sum, self.prime.clone())
     }
 
-    /// Subtract two field elements.
+    // Subtract two field elements.
     pub fn sub(&self, other: &Self) -> Result<Self, &'static str> {
         self.check_same_prime(other)?;
         let diff = (&self.num + &self.prime - &other.num) % &self.prime;
         Self::new(diff, self.prime.clone())
     }
 
-    /// Multiply two field elements.
+    // Multiply two field elements.
     pub fn mul(&self, other: &Self) -> Result<Self, &'static str> {
         self.check_same_prime(other)?;
         let product = (&self.num * &other.num) % &self.prime;
         Self::new(product, self.prime.clone())
     }
 
-    /// Divide two field elements.
+    // Divide two field elements.
     pub fn div(&self, other: &Self) -> Result<Self, &'static str> {
         let inv_other = other.inv()?;
         self.mul(&inv_other)
     }
 
-    /// Calculate the power of a field element.
+    // Calculate the power of a field element.
     pub fn pow(&self, exp: u32) -> Result<Self, &'static str> {
         let result = self.num.modpow(&BigUint::from(exp), &self.prime);
         Self::new(result, self.prime.clone())
     }
 
-    /// Calculate the inverse of a field element.
+    // Calculate the inverse of a field element.
     pub fn inv(&self) -> Result<Self, &'static str> {
         if self.is_zero() {
             return Err("Cannot compute inverse of zero");
@@ -72,12 +72,12 @@ impl FieldElement {
         Self::new(inv, self.prime.clone())
     }
 
-    /// Calculate the additive inverse of a field element.
+    // Calculate the additive inverse of a field element.
     pub fn negate(&self) -> Result<Self, &'static str> {
         Self::zero(&self.prime).sub(self)
     }
 
-    /// Returns a zero element.
+    // Returns a zero element.
     pub fn zero(prime: &BigUint) -> Self {
         Self {
             num: BigUint::zero(),
@@ -85,7 +85,7 @@ impl FieldElement {
         }
     }
 
-    /// Returns a one element.
+    // Returns a one element.
     pub fn one(prime: &BigUint) -> Self {
         Self {
             num: BigUint::one(),
