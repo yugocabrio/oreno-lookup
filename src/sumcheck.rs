@@ -194,6 +194,138 @@ mod tests {
     use num_bigint::BigUint;
     use std::collections::HashMap;
 
+
+    #[test]
+    fn test_compute_initial_sum() {
+        // p = 17
+        let prime = BigUint::from(17u32);
+
+        // g(x0, x1) = x0 * x1 + x0 + x1 + 1
+        let mut terms = HashMap::new();
+
+        // x0 * x1
+        terms.insert(vec![1, 1], FieldElement::one(&prime));
+
+        // x0
+        terms.insert(vec![1, 0], FieldElement::one(&prime));
+
+        // x1
+        terms.insert(vec![0, 1], FieldElement::one(&prime));
+
+        // 1
+        terms.insert(vec![0, 0], FieldElement::one(&prime));
+
+        let polynomial = MultivariatePolynomial::new(terms);
+
+        let num_variables = 2;
+        let verifier_challenges = vec![];
+        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+
+        // (x0, x1) ∈ {0,1}^2
+        // g(0,0) = 0 + 0 + 0 + 1 = 1
+        // g(0,1) = 0 + 0 + 1 + 1 = 2
+        // g(1,0) = 0 + 1 + 0 + 1 = 2
+        // g(1,1) = 1 + 1 + 1 + 1 = 4
+        // sum = 1 + 2 + 2 + 4 = 9 mod 17 = 9
+
+        let initial_sum = sumcheck.compute_initial_sum().unwrap();
+        let expected_sum = FieldElement::from_u32(9u32, &prime).unwrap();
+
+        assert_eq!(initial_sum, expected_sum);
+    }
+
+    #[test]
+    fn test_compute_univariate_polynomial() {
+        // p = 17
+        let prime = BigUint::from(17u32);
+
+        // g(x0, x1) = x0 * x1 + x0 + x1 + 1
+        let mut terms = HashMap::new();
+
+        // x0 * x1
+        terms.insert(vec![1, 1], FieldElement::one(&prime));
+
+        // x0
+        terms.insert(vec![1, 0], FieldElement::one(&prime));
+
+        // x1
+        terms.insert(vec![0, 1], FieldElement::one(&prime));
+
+        // 1
+        terms.insert(vec![0, 0], FieldElement::one(&prime));
+
+        let polynomial = MultivariatePolynomial::new(terms);
+
+        let num_variables = 2;
+        let verifier_challenges = vec![];
+        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+
+        // index 0（x0)
+        let var_index = 0;
+        let previous_r_i = vec![];
+
+        let univariate_poly = sumcheck
+            .compute_univariate_polynomial(var_index, &previous_r_i)
+            .unwrap();
+
+        // g1(x0)
+        // x1 = 0
+        // g(0,0) = 1, g(1,0) = 2
+        // x1 = 1
+        // g(0,1) = 2, g(1,1) = 4
+        // g1(x0) = (g(x0,0) + g(x0,1)) = (1 + 2)(1 - x0) + (2 + 4)x0 = 3 + 3x0
+
+        let expected_coeffs = vec![
+            FieldElement::from_u32(3u32, &prime).unwrap(),
+            FieldElement::from_u32(3u32, &prime).unwrap(),
+        ];
+
+        assert_eq!(univariate_poly.coefficients, expected_coeffs);
+    }
+
+    #[test]
+    fn test_iterate_domain() {
+        // p = 17
+        let prime = BigUint::from(17u32);
+
+        let terms = HashMap::new();
+        let polynomial = MultivariatePolynomial::new(terms);
+
+        let num_variables = 2;
+        let verifier_challenges = vec![];
+        let sumcheck = Sumcheck::new(&polynomial, num_variables, verifier_challenges);
+
+        // var_index = 0
+        let var_index = 0;
+        let current_assignment = vec![];
+
+        let domain_points = sumcheck
+            .iterate_domain(var_index, current_assignment)
+            .unwrap();
+
+        // (x0, x1) ∈ {0,1}^2
+        let expected_points = vec![
+            vec![
+                FieldElement::zero(&prime),
+                FieldElement::zero(&prime),
+            ],
+            vec![
+                FieldElement::zero(&prime),
+                FieldElement::one(&prime),
+            ],
+            vec![
+                FieldElement::one(&prime),
+                FieldElement::zero(&prime),
+            ],
+            vec![
+                FieldElement::one(&prime),
+                FieldElement::one(&prime),
+            ],
+        ];
+
+        assert_eq!(domain_points, expected_points);
+    }
+
     #[test]
     fn test_sumcheck_protocol_1() {
         // p = 17
