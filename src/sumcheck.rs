@@ -5,8 +5,8 @@ use num_bigint::BigUint;
 
 pub struct Prover {
     // Multivariate polynomial that takes in boolean inputs; hypercube
-    multivariate_polynomial: MultivariatePolynomial,
-    num_variables: usize,
+    pub multivariate_polynomial: MultivariatePolynomial,
+    pub num_variables: usize,
 }
 
 impl Prover {
@@ -16,7 +16,7 @@ impl Prover {
             num_variables,
         }
     }
-
+    
     // Prover computes and fixes an initial sum H in F
     pub fn compute_initial_sum(&self) -> Result<FieldElement, &'static str> {
         let prime = self.multivariate_polynomial.get_prime()?;
@@ -163,7 +163,7 @@ impl Verifier {
             return Err("Verification failed: g(0) + g(1) != previous claimed sum");
         }
 
-        // TODO: degree should be checked
+        // TODO: degree should be checked?
 
         Ok(())
     }
@@ -173,6 +173,8 @@ pub struct Sumcheck {
     pub prover: Prover,
     pub verifier: Verifier,
     pub challenges: Vec<FieldElement>,
+    // This is used in the logup protocol
+    pub require_initial_sum_zero: bool,
 }
 
 impl Sumcheck {
@@ -185,6 +187,7 @@ impl Sumcheck {
             prover,
             verifier,
             challenges,
+            require_initial_sum_zero: false,
         }
     }
 
@@ -194,6 +197,15 @@ impl Sumcheck {
         // Prover computes the initial sum H and sends it to the Verifier
         let mut claimed_sum = self.prover.compute_initial_sum()?;
         println!("Initial sum (H): {:?}", claimed_sum.num);
+
+        // This is used in the logup protocol
+        if self.require_initial_sum_zero {
+            let prime = self.prover.multivariate_polynomial.get_prime()?;
+            let zero = FieldElement::zero(&prime);
+            if claimed_sum != zero {
+                panic!("Initial sum H is not zero! This is required by the logup protocol.");
+            }
+        }
 
         // For each round
         for (round, challenge) in self.challenges.iter().enumerate() {
@@ -271,6 +283,7 @@ pub fn generate_all_assignments(
     }
     Ok(assignments)
 }
+
 
 #[cfg(test)]
 mod tests {
