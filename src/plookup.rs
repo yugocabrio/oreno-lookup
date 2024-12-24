@@ -359,7 +359,7 @@ mod tests {
 
         let result = plookup_protocol(f_values, t_values, &prime).unwrap();
 
-        assert!(result, "Plookup protocol failed for n = 4");
+        assert!(result, "Plookup protocol failed");
     }
 
     #[test]
@@ -370,7 +370,7 @@ mod tests {
 
         let result = plookup_protocol(f_values, t_values, &prime).unwrap();
 
-        assert!(result, "Plookup protocol failed for n = 9");
+        assert!(result, "Plookup protocol failed");
     }
 
     #[test]
@@ -381,6 +381,6 @@ mod tests {
 
         let result = plookup_protocol(f_values, t_values, &prime).unwrap();
 
-        assert!(result, "Plookup protocol failed for n = 4");
+        assert!(result, "Plookup protocol failed");
     }
 }

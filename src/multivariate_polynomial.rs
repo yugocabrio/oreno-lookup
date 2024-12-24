@@ -17,11 +17,27 @@ impl MultivariatePolynomial {
 
     /// Adds two multivariate polynomials.
     pub fn multi_poly_add(&self, other: &Self) -> Result<Self, &'static str> {
-        let prime = self.terms.values().next().unwrap().prime.clone();
+        // If self is empty, return other.clone()
+        if self.terms.is_empty() {
+            return Ok(other.clone());
+        }
+
+        // If other is empty, return self.clone()
+        if other.terms.is_empty() {
+            return Ok(self.clone());
+        }
+
+        // Ensure both polynomials have the same prime
+        let self_prime = self.terms.values().next().unwrap().prime.clone();
+        let other_prime = other.terms.values().next().unwrap().prime.clone();
+        if self_prime != other_prime {
+            return Err("Cannot add polynomials with different primes");
+        }
+
         let mut result_terms = self.terms.clone();
 
         for (exponent, coeff) in &other.terms {
-            let entry = result_terms.entry(exponent.clone()).or_insert(FieldElement::zero(&prime));
+            let entry = result_terms.entry(exponent.clone()).or_insert(FieldElement::zero(&self_prime));
             *entry = entry.add(coeff)?;
         }
 
@@ -82,6 +98,19 @@ impl MultivariatePolynomial {
         }
 
         Ok(result)
+    }
+
+    // Scales the multivariate polynomial by a scalar.
+    pub fn multi_poly_scale(&self, scalar: &FieldElement) -> Result<Self, &'static str> {
+        let prime = self.get_prime()?.clone();
+        let mut scaled_terms = HashMap::new();
+
+        for (exponents, coeff) in &self.terms {
+            let scaled_coeff = coeff.mul(scalar)?;
+            scaled_terms.insert(exponents.clone(), scaled_coeff);
+        }
+
+        Ok(MultivariatePolynomial::new(scaled_terms))
     }
 
     pub fn get_prime(&self) -> Result<&BigUint, &'static str> {

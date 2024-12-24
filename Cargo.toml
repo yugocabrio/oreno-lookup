@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 num-traits = "0.2"
 num-bigint = { version = "0.4", features = ["rand"] }
+rand = "0.8"
